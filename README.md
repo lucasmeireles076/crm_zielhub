@@ -31,6 +31,22 @@ Plataforma inteligente de CRM omnichannel, gestão comercial, análise de e-comm
 
 ---
 
+## 📸 Demonstração Visual da Plataforma
+
+| Pipeline Kanban Comercial (Hold & Drop) | Painel BI & Forecast |
+| :---: | :---: |
+| ![Pipeline Kanban](docs/screenshots/pipeline-kanban.png) | ![Painel BI](docs/screenshots/bi-forecast.png) |
+
+| Central de Atendimento & Sofia IA | Análise de E-commerce Vitgold |
+| :---: | :---: |
+| ![Conversas Omnichannel](docs/screenshots/conversas.png) | ![Análise E-commerce](docs/screenshots/ecommerce-rd.png) |
+
+| Gestão da Equipe (Uso, Tempo & Tags) | Importador Inteligente de Planilhas |
+| :---: | :---: |
+| ![Equipe Vitgold](docs/screenshots/equipe-vitgold.png) | ![Importador Planilhas](docs/screenshots/importador-planilha.png) |
+
+---
+
 ## 🛠️ Tecnologias Utilizadas
 
 - **Frontend:** React 19, TypeScript, Tailwind CSS v4, Vite 8, Lucide React, Canvas Confetti.

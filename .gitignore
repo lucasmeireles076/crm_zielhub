@@ -25,7 +25,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # Editor & OS files
-.vscode/
+.vscode/*.local.json
 .idea/
 .DS_Store
 Thumbs.db
