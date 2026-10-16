@@ -13,20 +13,18 @@ import { BIView } from './components/BIView';
 import { ImportadorPlanilhaView } from './components/ImportadorPlanilhaView';
 import { EquipeVitgoldView } from './components/EquipeVitgoldView';
 import { VitgoldDashboard } from './components/VitgoldDashboard';
-import { WhatsAppConnectModal } from './components/WhatsAppConnectModal';
 import type { NavigationTab, UserRoleProfile } from './types';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<NavigationTab>('conversas');
   const [currentProfile, setCurrentProfile] = useState<UserRoleProfile>('admin');
-  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
 
   const isVitgold = currentProfile === 'vitgold';
 
   // Mapeamento dos títulos das abas para o Header (contextual por perfil)
   const tabTitles: Record<NavigationTab, string> = {
-    'conversas': isVitgold ? 'Atendimento Nutricional & Chat Sofia IA' : 'Central de Conversas Omnichannel',
-    'agente': isVitgold ? 'Consultora IA Oficial Sofia (Vitgold)' : 'Configuração do Agente de IA',
+    'conversas': isVitgold ? 'Conversas WhatsApp & SDR Sofia' : 'Central de Conversas Omnichannel',
+    'agente': isVitgold ? 'Agente SDR Sofia (Vitgold)' : 'Configuração do Agente de IA',
     'funis': isVitgold ? 'Pipeline de Prescritores & Nutricionistas' : 'Pipeline Comercial Kanban (Hold & Drop)',
     'scoring': isVitgold ? 'Score Clínico de Recompra de Clientes' : 'Perfil & Lead Scoring (Contatos & IA)',
     'campanhas': isVitgold ? 'Campanhas de Suplementos (Meta Ads / Cupom LUCAS10)' : 'Gestão & Cadastro de Campanhas',
@@ -72,7 +70,7 @@ export function App() {
           currentProfile={currentProfile}
           onProfileChange={handleProfileChange}
           activeTabLabel={tabTitles[activeTab]}
-          onOpenWhatsAppModal={() => setIsWhatsAppModalOpen(true)}
+          onNavigateConversations={() => setActiveTab('conversas')}
         />
 
         {/* Faixa Superior Notificando a Troca de Contexto do Perfil */}
@@ -121,11 +119,6 @@ export function App() {
         </main>
       </div>
 
-      {/* Modal de Conexão WhatsApp Real (Baileys + QR Code) */}
-      <WhatsAppConnectModal
-        isOpen={isWhatsAppModalOpen}
-        onClose={() => setIsWhatsAppModalOpen(false)}
-      />
     </div>
   );
 }

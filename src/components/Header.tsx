@@ -10,14 +10,14 @@ interface HeaderProps {
   currentProfile: UserRoleProfile;
   onProfileChange: (newProfile: UserRoleProfile) => void;
   activeTabLabel: string;
-  onOpenWhatsAppModal: () => void;
+  onNavigateConversations: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
   currentProfile, 
   onProfileChange, 
   activeTabLabel,
-  onOpenWhatsAppModal
+  onNavigateConversations
 }) => {
   const isVitgold = currentProfile === 'vitgold';
 
@@ -164,7 +164,7 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
-      {/* Direita: Botão Conectar WhatsApp Real & Notificações */}
+      {/* Direita: Acesso às conversas WhatsApp & Notificações */}
       <div className="flex items-center space-x-3">
         {/* Status de Conexão Vitgold ou ZielHub */}
         {isVitgold ? (
@@ -181,12 +181,12 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Botão de Conexão WhatsApp Real Baileys */}
         <button
-          onClick={onOpenWhatsAppModal}
-          title="Conectar WhatsApp Real via QR Code"
+          onClick={onNavigateConversations}
+          title="Abrir conversas e conexão do WhatsApp"
           className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all cursor-pointer"
         >
           <QrCode className="w-3.5 h-3.5" />
-          <span>Conectar WhatsApp</span>
+          <span>Conversas WhatsApp</span>
           <span className="w-2 h-2 rounded-full bg-white animate-pulse"></span>
         </button>
 

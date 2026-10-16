@@ -8,6 +8,7 @@
     "server": "node server/whatsapp-bot.js",
     "start:all": "node server/unified-runner.js",
     "build": "tsc -b && vite build",
+    "test": "node --test server/open-source-ai-engine.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },

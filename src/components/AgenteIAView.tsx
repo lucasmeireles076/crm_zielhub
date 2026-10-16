@@ -17,7 +17,7 @@ import {
 
 interface AIConfig {
   enabled: boolean;
-  engine: 'local-open-source' | 'ollama' | 'hybrid';
+  engine: 'local-open-source' | 'ollama';
   ollamaUrl: string;
   ollamaModel: string;
   identityMode: 'assistant' | 'first_person' | 'sofia';
@@ -31,26 +31,27 @@ interface AIConfig {
 export const AgenteIAView: React.FC = () => {
   const [config, setConfig] = useState<AIConfig>({
     enabled: true,
-    engine: 'local-open-source',
+    engine: 'ollama',
     ollamaUrl: 'http://localhost:11434',
-    ollamaModel: 'llama3.2:1b',
-    identityMode: 'assistant',
+    ollamaModel: 'qwen2.5:3b',
+    identityMode: 'sofia',
     userName: 'Lucas',
-    botName: 'Assistente do Lucas',
-    systemPrompt: `Você é a IA de atendimento pessoal do Lucas para a operação Vitgold Brasil.\nResponda de forma ágil, atenciosa e resolutiva. Tire dúvidas de produtos Vitgold, informe preços, cupons e avise que o Lucas pode assumir a qualquer momento.`,
-    signature: '— *Respondido pela IA do Lucas (Vitgold)*',
-    autoPilotDelayMs: 1200
+    botName: 'Sofia',
+    systemPrompt: 'Agir como SDR da Vitgold: atender com simpatia, entender a necessidade do cliente, responder com informações verificadas no site oficial e conduzir a conversa sem pressão. Quando não souber ou não encontrar a informação no site, responder exatamente: Vou verificar.',
+    signature: '',
+    autoPilotDelayMs: 1000
   });
 
   const [saving, setSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
-  const [ollamaStatus, setOllamaStatus] = useState<{ available: boolean; models: string[] }>({ available: false, models: [] });
+  const [ollamaStatus, setOllamaStatus] = useState<{ available: boolean; models: { name: string }[]; configuredModel?: string; error?: string }>({ available: false, models: [] });
   const [checkingOllama, setCheckingOllama] = useState(false);
 
   // Playground de Teste
-  const [testInput, setTestInput] = useState('Qual o valor e benefícios da Vitamina K2 + D3?');
+  const [testInput, setTestInput] = useState('Como você pode me ajudar?');
   const [testOutput, setTestOutput] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const ollamaModelInstalled = ollamaStatus.models.some(model => model.name === config.ollamaModel);
 
   // Carrega configurações da API ao abrir a tela
   useEffect(() => {
@@ -89,9 +90,12 @@ export const AgenteIAView: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSaveFeedback('Configurações da IA Open Source salvas com sucesso!');
         setTimeout(() => setSaveFeedback(null), 3500);
+      } else {
+        setSaveFeedback(`Erro ao salvar: ${data.error || `HTTP ${res.status}`}`);
       }
     } catch (e: any) {
       setSaveFeedback(`Erro ao salvar: ${e.message}`);
@@ -225,11 +229,11 @@ export const AgenteIAView: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs text-slate-900">Local Neural RAG (Vitgold)</span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">Zero Latência</span>
+                    <span className="font-bold text-xs text-slate-900">Fallback local (sem LLM)</span>
+                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded">Respostas limitadas</span>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-tight">
-                    Motor open-source embarcado. 100% offline, sem necessidade de GPU, resposta instantânea (&lt;50ms) com base de conhecimento Vitgold.
+                    Responde saudações e consulta alguns dados do catálogo. Para conversa aberta e respostas contextualizadas, use o modelo generativo Ollama.
                   </p>
                 </div>
 
@@ -243,35 +247,54 @@ export const AgenteIAView: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs text-slate-900">Ollama Local LLM (Llama / Qwen)</span>
+                    <span className="font-bold text-xs text-slate-900">Conversa inteligente (Ollama)</span>
                     <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                      ollamaStatus.available ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                      ollamaModelInstalled ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                     }`}>
-                      {ollamaStatus.available ? 'Ativo :11434' : 'Aguardando Ollama'}
+                      {ollamaModelInstalled ? 'Modelo pronto' : ollamaStatus.available ? 'Baixe o modelo' : 'Ollama offline'}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-tight">
-                    Conecta ao daemon Ollama na sua máquina. Suporta Llama 3.2, Qwen 2.5 e Mistral 7B para respostas generativas profundas.
+                    Usa um modelo generativo local, com contexto da conversa e catálogo. As mensagens não são enviadas a um serviço externo.
                   </p>
                 </div>
               </div>
 
               {config.engine === 'ollama' && (
-                <div className="p-3 bg-slate-100 rounded-xl flex items-center justify-between text-xs">
-                  <div className="flex items-center space-x-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${ollamaStatus.available ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                    <span className="text-slate-700">
-                      Endpoint: <code className="font-mono text-slate-900">http://localhost:11434</code> • Modelo: <strong className="text-slate-900">{config.ollamaModel}</strong>
-                    </span>
+                <div className="p-3 bg-slate-100 rounded-xl space-y-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                    <label className="space-y-1">
+                      <span className="block text-[11px] font-semibold text-slate-600">Endereço do Ollama</span>
+                      <input
+                        type="url"
+                        value={config.ollamaUrl}
+                        onChange={(e) => setConfig(prev => ({ ...prev, ollamaUrl: e.target.value }))}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs text-slate-900"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="block text-[11px] font-semibold text-slate-600">Modelo instalado</span>
+                      <input
+                        type="text"
+                        value={config.ollamaModel}
+                        onChange={(e) => setConfig(prev => ({ ...prev, ollamaModel: e.target.value }))}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs text-slate-900"
+                      />
+                    </label>
+                    <button
+                      onClick={checkOllamaManual}
+                      disabled={checkingOllama}
+                      className="text-[11px] text-[#2E86D0] hover:underline font-bold flex items-center space-x-1 disabled:opacity-50 py-2"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${checkingOllama ? 'animate-spin' : ''}`} />
+                      <span>Verificar</span>
+                    </button>
                   </div>
-
-                  <button
-                    onClick={checkOllamaManual}
-                    className="text-[11px] text-[#2E86D0] hover:underline font-bold flex items-center space-x-1"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${checkingOllama ? 'animate-spin' : ''}`} />
-                    <span>Verificar Conexão</span>
-                  </button>
+                  <p className="text-[11px] text-slate-600">
+                    {ollamaModelInstalled
+                      ? `Conectado: ${config.ollamaModel}`
+                      : `Para habilitar conversa generativa: instale o Ollama e execute “ollama pull ${config.ollamaModel}”. Depois salve as configurações e verifique a conexão.`}
+                  </p>
                 </div>
               )}
             </div>
@@ -413,7 +436,7 @@ export const AgenteIAView: React.FC = () => {
             </h3>
 
             <p className="text-xs text-slate-500 leading-relaxed">
-              A IA consulta dinamicamente esta base técnica para formular respostas clínicas completas com posologia e cupons:
+              Ao receber uma pergunta sobre um produto conhecido, a Sofia consulta a página oficial ao vivo. Se não encontrar a resposta, responde “Vou verificar”:
             </p>
 
             <div className="space-y-2.5">

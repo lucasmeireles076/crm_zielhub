@@ -8,21 +8,38 @@ import {
   QrCode,
   RotateCcw,
   Zap,
-  CheckCheck
+  CheckCheck,
+  Wifi,
+  WifiOff,
+  LogOut,
+  RefreshCw
 } from 'lucide-react';
-import { INITIAL_CONVERSATIONS } from '../data/mockData';
 import type { ConversationItem, ChatMessage } from '../types';
-import { WhatsAppConnectModal } from './WhatsAppConnectModal';
+
+interface WhatsAppStatus {
+  status: 'disconnected' | 'connecting' | 'connected';
+  qrCodeDataUrl: string | null;
+  connectedUser: { id: string; name: string; phone: string } | null;
+}
+
+interface WhatsAppLogMessage {
+  id: string;
+  from: string;
+  senderName: string;
+  text: string;
+  fromMe: boolean;
+  timestamp: string;
+}
 
 export const ConversasView: React.FC = () => {
-  // Conversa Pessoal e Verdadeira com a Sofia (IA Open Source)
+  // Conversa de teste local; conversas reais são carregadas da API do WhatsApp.
   const sofiaDefaultConversation: ConversationItem = {
     id: 'sofia-ai-direct',
-    contactName: 'Sofia • Especialista Vitgold (IA Open Source)',
+    contactName: 'Simulador SDR Vitgold',
     phone: '+55 11 98844-2026',
     channel: 'whatsapp',
     status: 'abertas',
-    lastMessage: 'Olá, Lucas! Sou a Sofia, especialista em suplementação e nutrição preventiva. Como posso te ajudar hoje?',
+    lastMessage: 'Olá! Sou a Sofia, SDR da Vitgold. Como posso ajudar?',
     timestamp: 'Agora',
     unreadCount: 0,
     agentActive: true,
@@ -31,25 +48,25 @@ export const ConversasView: React.FC = () => {
       {
         id: 'msg-sofia-welcome',
         sender: 'agent',
-        text: `Olá, Lucas! Seja muito bem-vindo à Vitgold Brasil 🌿✨\n\nEu sou a **Sofia**, sua inteligência artificial e consultora nutricional. Fui programada com conhecimento em bioquímica e suplementação preventiva.\n\nEstou pronta para conversar com você! Você pode me perguntar sobre:\n1️⃣ Benefícios e posologia da **Vitamina K2 MK-7 + D3**;\n2️⃣ Absorção e imunidade com o **Zinco Quelato 29.5mg**;\n3️⃣ Prevenção urinária com o **Cranberry 500mg Softgel**;\n4️⃣ Suporte muscular com **Magnésio Dimalato** e **Ômega 3**;\n5️⃣ Cupons promocionais ativos para compras.\n\nComo posso cuidar da sua saúde, energia ou rotina hoje?`,
+        text: 'Olá! Sou a Sofia, SDR da Vitgold. Como posso ajudar?',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ]
   };
 
-  const [conversations, setConversations] = useState<ConversationItem[]>([
-    sofiaDefaultConversation,
-    ...INITIAL_CONVERSATIONS
-  ]);
+  const [conversations, setConversations] = useState<ConversationItem[]>([sofiaDefaultConversation]);
 
   const [activeConvId, setActiveConvId] = useState<string>('sofia-ai-direct');
   const [newMessage, setNewMessage] = useState('');
   const [filter, setFilter] = useState<'todas' | 'abertas' | 'aguardando'>('todas');
   const [isTyping, setIsTyping] = useState(false);
-  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus | null>(null);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const autoSelectedWhatsAppRef = useRef(false);
 
   const activeConv = conversations.find(c => c.id === activeConvId) || conversations[0];
 
@@ -61,6 +78,100 @@ export const ConversasView: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [activeConv?.messages, isTyping]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshWhatsApp = async () => {
+      try {
+        const [statusResponse, messagesResponse] = await Promise.all([
+          fetch('http://localhost:3001/api/whatsapp/status'),
+          fetch('http://localhost:3001/api/whatsapp/messages')
+        ]);
+        if (!statusResponse.ok || !messagesResponse.ok) {
+          throw new Error('Não foi possível sincronizar o WhatsApp com o CRM.');
+        }
+
+        const statusData: WhatsAppStatus = await statusResponse.json();
+        const { messages = [] }: { messages: WhatsAppLogMessage[] } = await messagesResponse.json();
+        if (cancelled) return;
+
+        setWhatsappStatus(statusData);
+        setWhatsappError(null);
+
+        const groupedMessages = new Map<string, WhatsAppLogMessage[]>();
+        for (const message of messages) {
+          if (!message.from?.includes('@') || !message.text) continue;
+          const conversationMessages = groupedMessages.get(message.from) || [];
+          conversationMessages.push(message);
+          groupedMessages.set(message.from, conversationMessages);
+        }
+
+        const whatsappConversations: ConversationItem[] = [...groupedMessages.entries()].map(([jid, entries]) => {
+          const orderedMessages = [...entries].sort((a, b) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+          const lastMessage = orderedMessages[orderedMessages.length - 1];
+          const contactMessage = [...orderedMessages].reverse().find(message => !message.fromMe);
+          const phone = jid.split('@')[0].split(':')[0];
+
+          return {
+            id: `whatsapp:${jid}`,
+            contactName: contactMessage?.senderName || `+${phone}`,
+            phone: `+${phone}`,
+            channel: 'whatsapp',
+            status: 'abertas',
+            lastMessage: lastMessage.text,
+            timestamp: new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            unreadCount: 0,
+            agentActive: true,
+            assignedTo: 'SDR Vitgold',
+            messages: orderedMessages.map(message => ({
+              id: message.id,
+              sender: message.fromMe
+                ? message.senderName.toLowerCase().includes('sdr') || message.senderName.toLowerCase().includes('sofia')
+                  ? 'agent'
+                  : 'human'
+                : 'user',
+              text: message.text,
+              timestamp: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }))
+          };
+        });
+
+        setConversations(previous => {
+          const previousById = new Map(previous.map(conversation => [conversation.id, conversation]));
+          const freshConversations = whatsappConversations.map(conversation => {
+            const oldConversation = previousById.get(conversation.id);
+            const messagesUnchanged = oldConversation?.messages.length === conversation.messages.length &&
+              oldConversation.messages.every((message, index) =>
+                message.id === conversation.messages[index].id &&
+                message.text === conversation.messages[index].text
+              );
+            return messagesUnchanged && oldConversation ? oldConversation : conversation;
+          });
+          return [
+            ...previous.filter(conversation => !conversation.id.startsWith('whatsapp:')),
+            ...freshConversations
+          ];
+        });
+        if (!autoSelectedWhatsAppRef.current && whatsappConversations.length > 0) {
+          autoSelectedWhatsAppRef.current = true;
+          setActiveConvId(current => current === 'sofia-ai-direct' ? whatsappConversations[0].id : current);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setWhatsappError(error instanceof Error ? error.message : 'Falha ao conectar ao servidor WhatsApp.');
+      }
+    };
+
+    refreshWhatsApp();
+    const intervalId = window.setInterval(refreshWhatsApp, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
@@ -91,8 +202,31 @@ export const ConversasView: React.FC = () => {
 
     setNewMessage('');
 
-    // Se for conversa com a Sofia ou se o agente de IA estiver ativo
-    if (activeConv.id === 'sofia-ai-direct' || activeConv.agentActive) {
+    if (activeConv.id.startsWith('whatsapp:')) {
+      setIsTyping(true);
+      try {
+        const response = await fetch('http://localhost:3001/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: activeConv.phone, message: textToSend })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Falha ao enviar mensagem (HTTP ${response.status}).`);
+      } catch (error) {
+        console.error('Erro ao enviar mensagem pelo WhatsApp:', error);
+        const errorMessage: ChatMessage = {
+          id: `error-${Date.now()}`,
+          sender: 'agent',
+          text: `Não foi possível enviar a mensagem: ${error instanceof Error ? error.message : 'erro inesperado'}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setConversations(previous => previous.map(conversation => conversation.id === activeConv.id
+          ? { ...conversation, messages: [...updatedMessages, errorMessage] }
+          : conversation));
+      } finally {
+        setIsTyping(false);
+      }
+    } else if (activeConv.id === 'sofia-ai-direct' || activeConv.agentActive) {
       setIsTyping(true);
 
       try {
@@ -111,38 +245,41 @@ export const ConversasView: React.FC = () => {
           })
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          const aiMessage: ChatMessage = {
-            id: `reply-${Date.now()}`,
-            sender: 'agent',
-            text: data.text,
-            timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          };
-
-          setConversations(prev => prev.map(c => {
-            if (c.id === activeConv.id) {
-              return {
-                ...c,
-                messages: [...updatedMessages, aiMessage],
-                lastMessage: aiMessage.text,
-                timestamp: aiMessage.timestamp
-              };
-            }
-            return c;
-          }));
-        } else {
-          // Fallback caso a API tenha algum erro momentâneo
-          const fallbackMsg: ChatMessage = {
-            id: `reply-${Date.now()}`,
-            sender: 'agent',
-            text: 'Recebi sua mensagem perfeitamente! Como posso te ajudar com a dosagem e compra dos suplementos Vitgold?',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          };
-          setConversations(prev => prev.map(c => c.id === activeConv.id ? { ...c, messages: [...updatedMessages, fallbackMsg] } : c));
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Falha ao consultar a IA (HTTP ${response.status}).`);
         }
+
+        const data = await response.json();
+        const aiMessage: ChatMessage = {
+          id: `reply-${Date.now()}`,
+          sender: 'agent',
+          text: data.text,
+          timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+
+        setConversations(prev => prev.map(c => {
+          if (c.id === activeConv.id) {
+            return {
+              ...c,
+              messages: [...updatedMessages, aiMessage],
+              lastMessage: aiMessage.text,
+              timestamp: aiMessage.timestamp
+            };
+          }
+          return c;
+        }));
       } catch (err) {
         console.error('Erro na resposta da IA Sofia:', err);
+        const errorMessage: ChatMessage = {
+          id: `error-${Date.now()}`,
+          sender: 'agent',
+          text: `Não consegui gerar uma resposta agora: ${err instanceof Error ? err.message : 'erro inesperado'}. Tente novamente em instantes.`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setConversations(prev => prev.map(c => c.id === activeConv.id
+          ? { ...c, messages: [...updatedMessages, errorMessage] }
+          : c));
       } finally {
         setIsTyping(false);
       }
@@ -177,16 +314,17 @@ export const ConversasView: React.FC = () => {
 
   // Sugestões de perguntas rápidas para conversa instantânea
   const quickChips = [
-    { label: '🌿 K2 + D3 2000 UI', prompt: 'Sofia, me explica detalhadamente os benefícios de tomar Vitamina K2 junto com a D3?' },
-    { label: '🛡️ Zinco Quelato', prompt: 'Por que o Zinco Quelato é melhor para imunidade que os outros?' },
-    { label: '🌸 Prevenção Cranberry', prompt: 'Como o Cranberry ajuda na prevenção de infecção urinária de repetição?' },
-    { label: '🎁 Cupom de Desconto', prompt: 'Tem algum cupom de desconto ou condição especial disponível hoje?' },
-    { label: '⚡ Cansaço & Sono', prompt: 'Tenho sentido muito cansaço físico e sono leve, o que você me recomenda?' }
+    { label: '🌿 Informações sobre K2', prompt: 'Quais informações sobre a Vitamina K2 estão disponíveis no site da Vitgold?' },
+    { label: '🛡️ Informações sobre zinco', prompt: 'O que consta no site da Vitgold sobre o Zinco Quelato?' },
+    { label: '🌸 Informações sobre Cranberry', prompt: 'Quais detalhes do Cranberry estão no site oficial?' },
+    { label: '🎁 Condições comerciais', prompt: 'Quais condições de compra estão informadas no site da Vitgold?' },
+    { label: '📦 Catálogo Vitgold', prompt: 'Pode me ajudar a encontrar um produto da Vitgold?' }
   ];
 
   const filteredConversations = conversations.filter(c => {
     const matchesSearch = c.contactName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase());
+                        c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        c.phone.includes(searchQuery);
     const matchesFilter = filter === 'todas' || c.status === filter;
     return matchesSearch && matchesFilter;
   });
@@ -202,27 +340,84 @@ export const ConversasView: React.FC = () => {
           <div>
             <h1 className="text-lg font-black text-[#0F172A] flex items-center space-x-2">
               <span>Central de Atendimento Omnichannel & IA Viva</span>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center space-x-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>IA Open Source Conectada</span>
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border flex items-center space-x-1 ${
+                whatsappStatus?.status === 'connected'
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                  : 'bg-amber-100 text-amber-800 border-amber-200'
+              }`}>
+                {whatsappStatus?.status === 'connected'
+                  ? <Wifi className="w-3 h-3" />
+                  : <WifiOff className="w-3 h-3" />}
+                <span>WhatsApp {whatsappStatus?.status === 'connected' ? 'Conectado' : 'Aguardando conexão'}</span>
               </span>
             </h1>
             <p className="text-xs text-[#64748B]">
-              Converse em tempo real com a atendente virtual <strong className="text-[#0F172A]">Sofia (Vitgold)</strong> ou integre seu WhatsApp pessoal.
+              Mensagens e atendimentos reais do WhatsApp sincronizados nesta tela • SDR Vitgold ativo
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setIsWhatsAppModalOpen(true)}
-            className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-all"
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>Conectar WhatsApp Real</span>
-          </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            {whatsappStatus?.status === 'connected' ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Conectado: +{whatsappStatus.connectedUser?.phone || 'WhatsApp'}</span>
+                <button
+                  onClick={async () => {
+                    if (!window.confirm('Desconectar o WhatsApp desta sessão?')) return;
+                    setDisconnecting(true);
+                    try {
+                      const response = await fetch('http://localhost:3001/api/whatsapp/disconnect', { method: 'POST' });
+                      if (!response.ok) throw new Error('Não foi possível desconectar o WhatsApp.');
+                    } catch (error) {
+                      setWhatsappError(error instanceof Error ? error.message : 'Falha ao desconectar o WhatsApp.');
+                    } finally {
+                      setDisconnecting(false);
+                    }
+                  }}
+                  disabled={disconnecting}
+                  className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                  title="Desconectar WhatsApp"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <span>Escaneie o QR Code abaixo com o WhatsApp</span>
+            )}
+          </div>
         </div>
       </div>
+
+      {whatsappError && (
+        <div role="alert" className="px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs font-medium text-red-700 flex items-center justify-between">
+          <span>{whatsappError}</span>
+          <button onClick={() => setWhatsappError(null)} className="font-bold hover:underline">Fechar</button>
+        </div>
+      )}
+
+      {whatsappStatus?.status !== 'connected' && (
+        <div className="bg-[#030711] text-white border border-[#1E293B] rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
+          {whatsappStatus?.qrCodeDataUrl ? (
+            <img
+              src={whatsappStatus.qrCodeDataUrl}
+              alt="QR Code para conectar o WhatsApp"
+              className="w-36 h-36 rounded-lg bg-white p-2"
+            />
+          ) : (
+            <div className="w-36 h-36 rounded-lg border border-dashed border-slate-600 flex flex-col items-center justify-center gap-2 text-center p-3">
+              <RefreshCw className="w-5 h-5 text-[#4EC5E8] animate-spin" />
+              <span className="text-[11px] text-slate-300">Aguardando o QR Code do WhatsApp...</span>
+            </div>
+          )}
+          <div className="space-y-2 max-w-xl">
+            <h2 className="text-sm font-bold flex items-center gap-2"><QrCode className="w-4 h-4 text-[#4EC5E8]" />Conecte o WhatsApp nesta tela</h2>
+            <p className="text-xs text-slate-300">No celular, abra WhatsApp → Aparelhos conectados → Conectar aparelho e escaneie o QR Code. Depois da conexão, as conversas novas aparecerão e poderão ser respondidas aqui.</p>
+            <p className="text-[11px] text-amber-300">Mantenha o servidor local do CRM ativo durante o atendimento.</p>
+          </div>
+        </div>
+      )}
 
       {/* 2. Grid Principal: Lista de Conversas (4 col) + Janela de Chat Viva (8 col) */}
       <div className="bg-white border border-[#E2E8F0] rounded-2xl shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-12 min-h-[660px]">
@@ -260,9 +455,13 @@ export const ConversasView: React.FC = () => {
 
           {/* Lista de Contatos */}
           <div className="flex-1 overflow-y-auto divide-y divide-[#E2E8F0]/60">
+            {filteredConversations.length === 0 && (
+              <p className="p-5 text-xs text-slate-500 text-center">Nenhuma conversa encontrada. As mensagens novas do WhatsApp aparecerão aqui.</p>
+            )}
             {filteredConversations.map((conv) => {
               const isSelected = conv.id === activeConvId;
               const isSofia = conv.id === 'sofia-ai-direct';
+              const isWhatsApp = conv.id.startsWith('whatsapp:');
 
               return (
                 <div
@@ -279,7 +478,7 @@ export const ConversasView: React.FC = () => {
                       ? 'bg-gradient-to-tr from-[#2E86D0] to-[#4EC5E8] text-white ring-2 ring-[#4EC5E8]/40' 
                       : 'bg-[#07192C] text-white'
                   }`}>
-                    {isSofia ? '🌿' : conv.contactName.substring(0, 2).toUpperCase()}
+                    {isSofia ? '🌿' : isWhatsApp ? <MessageSquare className="w-4 h-4" /> : conv.contactName.substring(0, 2).toUpperCase()}
                   </div>
 
                   <div className="flex-1 min-w-0">
@@ -302,6 +501,10 @@ export const ConversasView: React.FC = () => {
                         <span className="text-[9px] bg-[#4EC5E8]/20 text-[#07192C] font-extrabold px-2 py-0.5 rounded-full border border-[#4EC5E8]/30 flex items-center space-x-1">
                           <Zap className="w-2.5 h-2.5 text-[#2E86D0]" />
                           <span>IA Interativa Ativa</span>
+                        </span>
+                      ) : isWhatsApp ? (
+                        <span className="text-[9px] bg-emerald-50 text-emerald-700 font-semibold px-1.5 py-0.2 rounded">
+                          WhatsApp Real
                         </span>
                       ) : (
                         <span className="text-[9px] bg-slate-100 text-slate-600 font-semibold px-1.5 py-0.2 rounded">
@@ -344,28 +547,30 @@ export const ConversasView: React.FC = () => {
                   {activeConv.id === 'sofia-ai-direct' && (
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center space-x-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>Online • IA Open Source</span>
+                      <span>Simulador • SDR Vitgold</span>
                     </span>
                   )}
                 </div>
                 <p className="text-xs text-slate-500">
-                  {activeConv.phone} • {activeConv.id === 'sofia-ai-direct' ? 'Canal Oficial de Atendimento Nutricional Vitgold' : 'Atendente: ' + activeConv.assignedTo}
+                  {activeConv.phone} •                   {activeConv.id === 'sofia-ai-direct' ? 'Simulador local • SDR Vitgold' : activeConv.id.startsWith('whatsapp:') ? 'WhatsApp em tempo real • SDR Vitgold' : 'Atendente: ' + activeConv.assignedTo}
                 </p>
               </div>
             </div>
 
             {/* Ações do Header */}
             <div className="flex items-center space-x-2">
-              <button
-                onClick={clearCurrentChat}
-                title="Reiniciar esta conversa"
-                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors text-xs flex items-center space-x-1"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span className="text-xs font-semibold hidden sm:inline">Reiniciar Chat</span>
-              </button>
+              {!activeConv.id.startsWith('whatsapp:') && (
+                <button
+                  onClick={clearCurrentChat}
+                  title="Reiniciar esta conversa"
+                  className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors text-xs flex items-center space-x-1"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span className="text-xs font-semibold hidden sm:inline">Reiniciar Chat</span>
+                </button>
+              )}
 
-              {activeConv.id !== 'sofia-ai-direct' && (
+              {activeConv.id !== 'sofia-ai-direct' && !activeConv.id.startsWith('whatsapp:') && (
                 <button
                   onClick={() => toggleAgent(activeConv.id)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 ${
@@ -424,7 +629,7 @@ export const ConversasView: React.FC = () => {
                   🌿
                 </div>
                 <div className="bg-white border border-[#E2E8F0] rounded-2xl rounded-bl-none px-4 py-3 shadow-sm flex items-center space-x-1.5">
-                  <span className="text-xs text-slate-500 font-semibold">Sofia está formulando resposta clínica</span>
+                  <span className="text-xs text-slate-500 font-semibold">Sofia está pensando</span>
                   <div className="flex space-x-1 pl-1">
                     <span className="w-1.5 h-1.5 bg-[#4EC5E8] rounded-full animate-bounce [animation-delay:-0.3s]"></span>
                     <span className="w-1.5 h-1.5 bg-[#4EC5E8] rounded-full animate-bounce [animation-delay:-0.15s]"></span>
@@ -437,8 +642,8 @@ export const ConversasView: React.FC = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Sugestões de Perguntas Rápidas (Chips com 1 Clique) */}
-          <div className="px-4 py-2 bg-white border-t border-slate-100 flex items-center space-x-2 overflow-x-auto">
+          {/* Atalhos de teste; nunca enviados acidentalmente a um contato real. */}
+          {activeConv.id === 'sofia-ai-direct' && <div className="px-4 py-2 bg-white border-t border-slate-100 flex items-center space-x-2 overflow-x-auto">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center space-x-1">
               <Sparkles className="w-3 h-3 text-[#4EC5E8]" />
               <span>Perguntas Rápidas:</span>
@@ -454,14 +659,16 @@ export const ConversasView: React.FC = () => {
                 {chip.label}
               </button>
             ))}
-          </div>
+          </div>}
 
           {/* Barra de Entrada de Mensagem */}
           <div className="p-3.5 border-t border-[#E2E8F0] bg-white">
             <form onSubmit={(e) => handleSendMessage(e)} className="flex items-center space-x-2">
               <input
                 type="text"
-                placeholder={isTyping ? "Sofia está respondendo..." : "Digite sua mensagem para a atendente Sofia (ex: 'Me explica sobre o K2+D3?')..."}
+                placeholder={isTyping ? "Sofia está respondendo..." : activeConv.id.startsWith('whatsapp:')
+                  ? "Digite uma mensagem para este contato do WhatsApp..."
+                  : "Teste a SDR Vitgold (ex: 'Oi', 'Quero saber sobre vitamina K2')..."}
                 value={newMessage}
                 disabled={isTyping}
                 onChange={(e) => setNewMessage(e.target.value)}
@@ -481,11 +688,6 @@ export const ConversasView: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal de Conexão WhatsApp Real */}
-      <WhatsAppConnectModal
-        isOpen={isWhatsAppModalOpen}
-        onClose={() => setIsWhatsAppModalOpen(false)}
-      />
     </div>
   );
 };

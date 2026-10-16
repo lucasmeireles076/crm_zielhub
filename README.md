@@ -6,10 +6,10 @@ Plataforma inteligente de CRM omnichannel, gestão comercial, análise de e-comm
 
 ## 🚀 Principais Módulos & Recursos
 
-### 1. Central de Conversas Omnichannel & IA Sofia
-- **Sofia (IA Nutricional Oficial Vitgold):** Motor de inteligência artificial com RAG clínico, posologias, benefícios, cupom ativo (`LUCAS10`) e memória conversacional *multi-turn* sem repetição de respostas.
-- **WhatsApp Conectado em Tempo Real:** Motor local baseado em `@whiskeysockets/baileys` com geração e leitura de QR Code direto no CRM.
-- **Auto-Pilot WhatsApp:** A IA pode responder de forma autônoma clientes no WhatsApp em tempo real.
+### 1. Central de Conversas Omnichannel & SDR Sofia
+- **Sofia, SDR da Vitgold:** Usa um modelo local com contexto multi-turn e consulta as páginas oficiais de produtos para fundamentar respostas; quando não encontra a informação, responde “Vou verificar”.
+- **WhatsApp Conectado em Tempo Real:** O QR Code, status, mensagens recebidas e envio de respostas ficam integrados diretamente na tela Conversas.
+- **Auto-Pilot WhatsApp:** A SDR pode responder automaticamente aos clientes pelo WhatsApp enquanto o servidor local está ativo.
 
 ### 2. Perfis Dinâmicos com Troca nos Avatares (Fotos)
 - **Lucas • ZielHub Admin:**
@@ -73,6 +73,13 @@ cd crm_zielhub
 # Instale as dependências
 npm install
 ```
+
+### Ativar conversa generativa local da Sofia
+Para respostas abertas e contextualizadas, instale o [Ollama](https://ollama.com/download) e baixe o modelo configurado:
+```bash
+ollama pull qwen2.5:3b
+```
+Mantenha o Ollama em execução. No CRM, a tela **Agente IA** permite verificar a conexão, escolher outro modelo instalado e salvar as configurações. Sem o Ollama, saudações e algumas consultas simples continuam funcionando, mas perguntas abertas recebem um aviso em vez de uma resposta inventada.
 
 ### Execução em Desenvolvimento
 Você pode iniciar o projeto de duas formas:

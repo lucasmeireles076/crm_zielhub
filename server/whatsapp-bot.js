@@ -14,6 +14,8 @@ import {
   generateConversationalAIReply,
   getAIAgentConfig, 
   updateAIAgentConfig, 
+  loadAIAgentConfig,
+  saveAIAgentConfig,
   checkOllamaAvailability,
   VITGOLD_CATALOG
 } from './open-source-ai-engine.js';
@@ -45,9 +47,28 @@ let connectedUser = null;
 const messageHistory = [];
 
 function logMessage(msg) {
+  const existingMessage = msg.id && messageHistory.find(existing => existing.id === msg.id);
+  if (existingMessage) {
+    Object.assign(existingMessage, msg);
+    return;
+  }
   messageHistory.unshift(msg);
   if (messageHistory.length > 80) messageHistory.pop();
 }
+
+app.get('/', (req, res) => {
+  res.json({
+    service: 'ZielHub CRM API',
+    status: 'online',
+    endpoints: [
+      '/api/whatsapp/status',
+      '/api/whatsapp/messages',
+      '/api/ai/config',
+      '/api/ai/ollama-status',
+      '/api/vitgold/catalog'
+    ]
+  });
+});
 
 // Inicializa ou reinicializa a conexão com o WhatsApp
 async function startWhatsAppBot() {
@@ -91,6 +112,7 @@ async function startWhatsAppBot() {
         
         console.log('[WhatsApp] Conexão encerrada. Status:', statusCode, 'Deslogado:', isLoggedOut, 'Erro:', lastDisconnect?.error?.message);
         connectionStatus = 'disconnected';
+        currentQrCodeDataUrl = null;
         connectedUser = null;
 
         if (isLoggedOut) {
@@ -114,18 +136,22 @@ async function startWhatsAppBot() {
 
     // Escuta de mensagens recebidas
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
+      if (type !== 'notify' && type !== 'append') return;
 
       for (const msg of messages) {
         if (!msg.message) continue;
         
         const isFromMe = msg.key.fromMe;
         const sender = msg.key.remoteJid;
+        const currentConfig = getAIAgentConfig();
         
         const text = 
           msg.message.conversation || 
           msg.message.extendedTextMessage?.text || 
           msg.message.imageMessage?.caption || 
+          msg.message.videoMessage?.caption ||
+          msg.message.buttonsResponseMessage?.selectedDisplayText ||
+          msg.message.listResponseMessage?.title ||
           '';
 
         const senderName = msg.pushName || sender?.replace('@s.whatsapp.net', '') || 'Cliente';
@@ -135,24 +161,31 @@ async function startWhatsAppBot() {
         logMessage({
           id: msg.key.id,
           from: sender,
-          senderName,
+          senderName: isFromMe ? `${currentConfig.botName || 'Sofia'} • SDR Vitgold` : senderName,
           text,
           fromMe: isFromMe,
           timestamp: new Date().toISOString()
         });
 
-        const currentConfig = getAIAgentConfig();
-
         // Se for mensagem recebida de cliente e a IA estiver habilitada para responder pelo usuário
-        if (!isFromMe && sender && !sender.endsWith('@g.us') && text && currentConfig.enabled) {
+        if (type === 'notify' && !isFromMe && sender && !sender.endsWith('@g.us') && text && currentConfig.enabled) {
           try {
-            console.log(`[WhatsApp] IA Sofia gerando resposta personalizada para ${senderName}...`);
+            console.log(`[WhatsApp] SDR Vitgold gerando resposta para ${senderName}...`);
             
             if (!global.whatsappHistories) {
               global.whatsappHistories = new Map();
             }
             if (!global.whatsappHistories.has(sender)) {
-              global.whatsappHistories.set(sender, []);
+              const previousMessages = messageHistory
+                .filter(message => message.from === sender && message.id !== msg.key.id && message.text)
+                .reverse()
+                .slice(-20)
+                .map(message => ({
+                  sender: message.fromMe ? 'agent' : 'user',
+                  text: message.text,
+                  fromMe: message.fromMe
+                }));
+              global.whatsappHistories.set(sender, previousMessages);
             }
             const contactHistory = global.whatsappHistories.get(sender);
 
@@ -164,17 +197,25 @@ async function startWhatsAppBot() {
             if (contactHistory.length > 20) contactHistory.splice(0, 2);
 
             // Simula digitação humana
-            await sock.sendPresenceUpdate('composing', sender);
+            try {
+              await sock.sendPresenceUpdate('composing', sender);
+            } catch (presenceError) {
+              console.warn('[WhatsApp] Não foi possível atualizar presença para digitando:', presenceError.message);
+            }
             await new Promise(r => setTimeout(r, currentConfig.autoPilotDelayMs || 1000));
-            await sock.sendPresenceUpdate('paused', sender);
+            try {
+              await sock.sendPresenceUpdate('paused', sender);
+            } catch (presenceError) {
+              console.warn('[WhatsApp] Não foi possível atualizar presença para pausado:', presenceError.message);
+            }
 
             // Envia resposta no WhatsApp
-            await sock.sendMessage(sender, { text: replyText });
+            const sentMessage = await sock.sendMessage(sender, { text: replyText });
 
             logMessage({
-              id: `reply-${Date.now()}`,
-              from: 'IA Open Source (Lucas)',
-              senderName: `${currentConfig.botName} (IA)`,
+              id: sentMessage?.key?.id || `reply-${Date.now()}`,
+              from: sender,
+              senderName: `${currentConfig.botName} • SDR Vitgold`,
               text: replyText,
               fromMe: true,
               timestamp: new Date().toISOString()
@@ -206,7 +247,7 @@ app.get('/api/whatsapp/status', (req, res) => {
     connectedUser: connectedUser ? {
       id: connectedUser.id,
       name: connectedUser.name || 'WhatsApp Conectado',
-      phone: connectedUser.id?.split(':')[0] || ''
+      phone: connectedUser.id?.split('@')[0]?.split(':')[0] || ''
     } : null,
     uptime: process.uptime()
   });
@@ -234,12 +275,12 @@ app.post('/api/whatsapp/send', async (req, res) => {
     const cleanPhone = phone.replace(/\D/g, '');
     const jid = `${cleanPhone}@s.whatsapp.net`;
 
-    await sock.sendMessage(jid, { text: message });
+    const sentMessage = await sock.sendMessage(jid, { text: message });
 
     logMessage({
-      id: `manual-${Date.now()}`,
-      from: 'CRM Atendente',
-      senderName: 'Atendente CRM',
+      id: sentMessage?.key?.id || `manual-${Date.now()}`,
+      from: jid,
+      senderName: getAIAgentConfig().userName || 'Atendente',
       text: message,
       fromMe: true,
       timestamp: new Date().toISOString()
@@ -282,16 +323,24 @@ app.get('/api/ai/config', (req, res) => {
 });
 
 // 6. Atualizar configuração da IA
-app.post('/api/ai/config', (req, res) => {
-  const updated = updateAIAgentConfig(req.body);
-  res.json({ success: true, config: updated });
+app.post('/api/ai/config', async (req, res) => {
+  try {
+    const updated = updateAIAgentConfig(req.body);
+    await saveAIAgentConfig(updated);
+    res.json({ success: true, config: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 7. Testar resposta da IA em tempo real no CRM
 app.post('/api/ai/test', async (req, res) => {
   try {
     const { message, senderName } = req.body;
-    const reply = await generateOpenSourceAIReply(message || 'Olá, quais são os benefícios da Vitamina K2?', senderName || 'Usuário Teste');
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'Mensagem é obrigatória.' });
+    }
+    const reply = await generateOpenSourceAIReply(message, senderName || 'Usuário Teste');
     res.json({
       success: true,
       query: message,
@@ -307,11 +356,14 @@ app.post('/api/ai/test', async (req, res) => {
 app.post('/api/conversations/sofia-chat', async (req, res) => {
   try {
     const { message, history = [], senderName = 'Lucas' } = req.body;
-    if (!message) {
-      return res.status(400).json({ error: 'Mensagem é obrigatória' });
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'Mensagem é obrigatória.' });
+    }
+    if (!Array.isArray(history)) {
+      return res.status(400).json({ error: 'O histórico deve ser uma lista de mensagens.' });
     }
 
-    const reply = await generateConversationalAIReply(message, history, senderName);
+    const reply = await generateConversationalAIReply(message, history.slice(-10), senderName);
 
     res.json({
       success: true,
@@ -344,6 +396,8 @@ app.get('/api/vitgold/catalog', (req, res) => {
 });
 
 // Inicia servidor Express e o Bot
+await loadAIAgentConfig();
+
 app.listen(PORT, () => {
   console.log(`=================================================`);
   console.log(`🤖 Servidor WhatsApp Vitgold com IA Open Source Rodando`);
